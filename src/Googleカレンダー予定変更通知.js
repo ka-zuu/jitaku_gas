@@ -108,8 +108,16 @@ function sendCalendarUpdatesToDiscord() {
 
           let timeString;
           if (isAllDay) {
-            // 終日イベントの場合、開始日のみ表示 (終了日は通常翌日になるため)
-             timeString = Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd (終日)');
+            // 終日イベントの場合、単日なら開始日のみ、複数日にまたがる終日イベントは開始日〜終了日を表示
+            // Google Calendar の終日イベントの endTime は「終了日の翌日」の0:00を指すため、表示用の終了日は1日引く
+            const startDateStr = Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+            const adjustedEnd = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+            const endDateStr = Utilities.formatDate(adjustedEnd, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+            if (startDateStr === endDateStr) {
+              timeString = `${startDateStr} (終日)`;
+            } else {
+              timeString = `${startDateStr} 〜 ${endDateStr} (終日)`;
+            }
           } else {
              timeString = `${Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')} - ${Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'HH:mm')}`;
           }
