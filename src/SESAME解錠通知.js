@@ -2,7 +2,7 @@
 // SESAME_API_KEY
 // SESAME_DEVICE_IDS (カンマ区切り)
 // SESAME_DEVICE_NAMES (カンマ区切り、SESAME_DEVICE_IDSに対応、省略可)
-// SESAME_DISCORD_WEBHOOK_URL
+// DISCORD_WEBHOOK_URL
 
 function checkMultiSesameStatusAndNotifyDiscord() {
   const scriptProperties = PropertiesService.getScriptProperties();
