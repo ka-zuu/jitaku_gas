@@ -83,51 +83,76 @@ function sendCalendarUpdatesToDiscord() {
       calendarName = calendar.getName() || calendarId; // カレンダー名を取得、取れなければIDを使う
       Logger.log(`カレンダー '${calendarName}' (${calendarId}) をチェック中...`);
 
-      // 指定期間のイベントを取得
-      // getEventsByDataRange や getEventsForDay など、より絞り込んだメソッドも検討できますが、
-      // 最終更新日時でフィルタリングするため、ここでは広い範囲で取得します。
-      const events = calendar.getEvents(searchStartDate, searchEndDate);
+      // Advanced Service (Calendar API) を使用してイベントを取得
+      // updatedMinパラメータを使用して、直近1時間に更新されたイベントのみを取得します。
+      // また、eventTypeを確認してタスクなどを除外します。
+      const optionalArgs = {
+        timeMin: searchStartDate.toISOString(),
+        timeMax: searchEndDate.toISOString(),
+        updatedMin: oneHourAgo.toISOString(), // 直近1時間に更新されたもの
+        showDeleted: false,
+        singleEvents: true, // 繰り返し予定を展開
+        orderBy: 'startTime'
+      };
 
-      // 取得したイベントの中から、直近1時間以内に最終更新されたものをフィルタリング
-      for (const event of events) {
-        const lastUpdated = event.getLastUpdated();
-        // 最終更新日時が直近1時間の範囲内にあるかチェック (oneHourAgo <= lastUpdated < now)
-        if (lastUpdated >= oneHourAgo && lastUpdated < now) {
-          // イベントの詳細情報を取得
-          const title = event.getTitle();
-          const startTime = event.getStartTime();
-          const endTime = event.getEndTime();
-          const isAllDay = event.isAllDayEvent();
+      const response = Calendar.Events.list(calendarId, optionalArgs);
+      const events = response.items;
 
-          // getHtmlLink メソッドが存在するかチェックし、存在しない場合は代替テキストを使用
-          let eventUrl = "リンクなし"; // デフォルト値
-          if (typeof event.getHtmlLink === 'function') {
-             eventUrl = event.getHtmlLink(); // イベントURLを取得
+      // 取得したイベントの中から、条件に合うものを処理
+      if (events && events.length > 0) {
+        for (const event of events) {
+          // eventType が 'default' のものだけを対象とする（タスク等を除外）
+          if (event.eventType && event.eventType !== 'default') {
+            continue;
           }
 
+          const lastUpdated = new Date(event.updated);
 
-          let timeString;
-          if (isAllDay) {
-            // 終日イベントの場合、単日なら開始日のみ、複数日にまたがる終日イベントは開始日〜終了日を表示
-            // Google Calendar の終日イベントの endTime は「終了日の翌日」の0:00を指すため、表示用の終了日は1日引く
-            const startDateStr = Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-            const adjustedEnd = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
-            const endDateStr = Utilities.formatDate(adjustedEnd, Session.getScriptTimeZone(), 'yyyy-MM-dd');
-            if (startDateStr === endDateStr) {
-              timeString = `${startDateStr} (終日)`;
+          // updatedMinを指定していても、APIの挙動として厳密でない場合があるので念のためチェック
+          // また、現在時刻より未来の更新日時はありえないが、念のため now と比較
+          if (lastUpdated >= oneHourAgo && lastUpdated < now) {
+            // イベントの詳細情報を取得
+            const title = event.summary || '（タイトルなし）';
+            let startTime, endTime, isAllDay;
+
+            if (event.start.date) {
+              isAllDay = true;
+              const startParts = event.start.date.split('-');
+              startTime = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+
+              const endParts = event.end.date.split('-');
+              endTime = new Date(endParts[0], endParts[1] - 1, endParts[2]);
             } else {
-              timeString = `${startDateStr} 〜 ${endDateStr} (終日)`;
+              isAllDay = false;
+              startTime = new Date(event.start.dateTime);
+              endTime = new Date(event.end.dateTime);
             }
-          } else {
-             timeString = `${Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')} - ${Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'HH:mm')}`;
-          }
 
-          updatedEventsForThisCalendar.push({
-            title: title,
-            time: timeString,
-            url: eventUrl,
-            updatedAt: lastUpdated // デバッグ用に残しておくのも良い
-          });
+            const eventUrl = event.htmlLink || "リンクなし";
+
+            let timeString;
+            if (isAllDay) {
+              // 終日イベントの場合
+              // Google Calendar の終日イベントの endTime は「終了日の翌日」の0:00を指すため、表示用の終了日は1日引く
+              const startDateStr = Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+              const adjustedEnd = new Date(endTime.getTime() - 24 * 60 * 60 * 1000);
+              const endDateStr = Utilities.formatDate(adjustedEnd, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+              if (startDateStr === endDateStr) {
+                timeString = `${startDateStr} (終日)`;
+              } else {
+                timeString = `${startDateStr} 〜 ${endDateStr} (終日)`;
+              }
+            } else {
+              timeString = `${Utilities.formatDate(startTime, Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm')} - ${Utilities.formatDate(endTime, Session.getScriptTimeZone(), 'HH:mm')}`;
+            }
+
+            updatedEventsForThisCalendar.push({
+              title: title,
+              time: timeString,
+              url: eventUrl,
+              updatedAt: lastUpdated
+            });
+          }
         }
       }
 
