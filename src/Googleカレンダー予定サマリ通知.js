@@ -116,20 +116,56 @@ function checkCalendarAndNotifyDiscord() {
       Logger.log('  カレンダー "' + calendarName + '" から予定を取得...');
 
       try {
-        // 指定期間の予定を取得
-        var events = calendar.getEvents(startOfToday, endOfToday);
+        // Advanced Service (Calendar API) を使用してイベントを取得
+        // カレンダーの予定だけでなくタスクを拾ってしまう問題への対応として、eventTypeをチェックするためにAPIを使用
+        var optionalArgs = {
+          timeMin: startOfToday.toISOString(),
+          timeMax: endOfToday.toISOString(),
+          singleEvents: true, // 繰り返し予定を展開
+          orderBy: 'startTime',
+          showDeleted: false
+        };
+
+        var response = Calendar.Events.list(calendarId, optionalArgs);
+        var events = response.items;
 
         // 取得した各イベントにカレンダー名を付加したオブジェクトを作成
-        var eventsWithInfo = events.map(function(event) {
-          return {
-            title: event.getTitle(),
-            startTime: event.getStartTime(),
-            endTime: event.getEndTime(),
-            description: event.getDescription(),
-            location: event.getLocation(),
-            calendarName: calendarName // イベントが属するカレンダー名
-          };
-        });
+        var eventsWithInfo = [];
+
+        if (events && events.length > 0) {
+          events.forEach(function(event) {
+            // eventType が 'default' のものだけを対象とする（タスク等を除外）
+            // eventType プロパティがない場合は、従来のイベントとみなして含める
+            if (event.eventType && event.eventType !== 'default') {
+              return;
+            }
+
+            var startTime, endTime;
+            // 終日イベントかどうかの判定
+            if (event.start.date) {
+              // 終日イベント ("yyyy-mm-dd")
+              // スクリプトのタイムゾーンに合わせてDateオブジェクトを作成
+              var startParts = event.start.date.split('-');
+              startTime = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+
+              var endParts = event.end.date.split('-');
+              endTime = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+            } else {
+              // 時間指定イベント (ISO 8601 string)
+              startTime = new Date(event.start.dateTime);
+              endTime = new Date(event.end.dateTime);
+            }
+
+            eventsWithInfo.push({
+              title: event.summary || '（タイトルなし）',
+              startTime: startTime,
+              endTime: endTime,
+              description: event.description,
+              location: event.location,
+              calendarName: calendarName // イベントが属するカレンダー名
+            });
+          });
+        }
 
         // 作成したオブジェクトの配列を全体のリストに結合
         allEventsWithCalendarInfo = allEventsWithCalendarInfo.concat(eventsWithInfo);
